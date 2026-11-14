@@ -20,20 +20,16 @@ pub fn tokenize(text: &str) -> Vec<Token> {
         let mut char_idx = 0;
 
         while let Some(&ch) = chars.peek() {
-            // --- ОБРАБОТКА КОММЕНТАРИЕВ ---
             if ch == '/' {
-                // Проверяем, не начинается ли двойной слеш
                 let mut temp_chars = chars.clone();
-                temp_chars.next(); // пропускаем первый '/'
+                temp_chars.next();
                 if let Some(&next_ch) = temp_chars.peek() {
                     if next_ch == '/' {
-                        // Это комментарий, пропускаем всю строку
-                        break; // Выходим из while (переходим к следующей строке)
+                        break;
                     }
                 }
             }
 
-            // --- ОБРАБОТКА ОСТАЛЬНЫХ СИМВОЛОВ ---
             if ch.is_alphabetic() || ch == '_' {
                 let start_char = char_idx;
                 let mut word = String::new();
@@ -49,7 +45,6 @@ pub fn tokenize(text: &str) -> Vec<Token> {
                 let start_char = char_idx;
                 let mut net = String::new();
                 while let Some(&c) = chars.peek() {
-                    // Собираем цифры, точки, двоеточия, слэши и дефисы (для сетей и версий)
                     if c.is_ascii_alphanumeric() || c == '.' || c == ':' || c == '/' || c == '-' {
                         net.push(c);
                         chars.next();

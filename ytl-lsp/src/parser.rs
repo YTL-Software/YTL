@@ -66,7 +66,6 @@ pub fn parse(tokens: &[Token]) -> Vec<Diagnostic> {
             TokenKind::Operator => {
             }
             TokenKind::Word => {
-                // 1. Include
                 if token.text == "Include" && (is_inside_block || has_seen_colon) {
                     diagnostics.push(create_err(
                         token.line,
@@ -76,7 +75,6 @@ pub fn parse(tokens: &[Token]) -> Vec<Diagnostic> {
                     ));
                 }
 
-                // 2. Attach
                 if token.text == "Attach" && !is_inside_block {
                     diagnostics.push(create_err(
                         token.line,
@@ -86,7 +84,6 @@ pub fn parse(tokens: &[Token]) -> Vec<Diagnostic> {
                     ));
                 }
 
-                // 3. Realm
                 if token.text == "Realm" && !is_inside_block {
                     diagnostics.push(create_err(
                         token.line,
@@ -96,7 +93,6 @@ pub fn parse(tokens: &[Token]) -> Vec<Diagnostic> {
                     ));
                 }
 
-                // 4. Если это Const, запоминаем следующее слово
                 if token.text == "Const" {
                     if let Some(next_token) = tokens.get(i + 1) {
                         if next_token.kind == TokenKind::Word {
@@ -105,7 +101,6 @@ pub fn parse(tokens: &[Token]) -> Vec<Diagnostic> {
                     }
                 }
 
-                // 5. Проверка изменения константы (единая логика)
                 if const_fields.contains(&token.text) && token.text != "Const" {
                     if i > 0 {
                         if let Some(prev_token) = tokens.get(i - 1) {
@@ -125,11 +120,7 @@ pub fn parse(tokens: &[Token]) -> Vec<Diagnostic> {
                 }
             }
             TokenKind::Network => {
-                // 1. Версия
-                if crate::validators::is_version(&token.text) {
-                    // Ничего не делаем
-                } 
-                // 2. CIDR (если есть слэш)
+                if crate::validators::is_version(&token.text) {} 
                 else if token.text.contains('/') {
                     if let Err(reason) = crate::validators::validate_cidr(&token.text) {
                         diagnostics.push(create_err(
@@ -140,7 +131,6 @@ pub fn parse(tokens: &[Token]) -> Vec<Diagnostic> {
                         ));
                     }
                 }
-                // 3. IPv4 (если есть точки, нет двоеточий, и это не Cisco MAC)
                 else if token.text.contains('.') && !token.text.contains(':') && !token.text.ends_with('.') 
                     && !(token.text.len() == 14 && token.text.matches('.').count() == 2 && token.text.chars().all(|c| c.is_ascii_hexdigit() || c == '.')) {
                     if let Err(reason) = crate::validators::validate_ipv4(&token.text) {
@@ -152,7 +142,6 @@ pub fn parse(tokens: &[Token]) -> Vec<Diagnostic> {
                         ));
                     }
                 }
-                // 4. MAC (двоеточия или дефисы, длина 12-20)
                 else if (token.text.contains(':') || token.text.contains('-') || token.text.contains('.')) 
                      && token.text.len() >= 12 && token.text.len() <= 20 
                      && !token.text.contains("::") {
@@ -165,7 +154,6 @@ pub fn parse(tokens: &[Token]) -> Vec<Diagnostic> {
                         ));
                     }
                 }
-                // 5. IPv6 (двоеточия, нет точек)
                 else if token.text.contains(':') && !token.text.contains('.') {
                     if let Err(reason) = crate::validators::validate_ipv6(&token.text) {
                         diagnostics.push(create_err(
@@ -180,7 +168,6 @@ pub fn parse(tokens: &[Token]) -> Vec<Diagnostic> {
         }
     }
 
-    // Проверка незакрытых скобок
     for open_token in stack {
         let (open_sym, _) = get_symbols(&open_token.kind);
         diagnostics.push(create_err(

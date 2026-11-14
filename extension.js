@@ -1,19 +1,30 @@
 const path = require('path');
+const fs = require('fs');
 const vscode = require('vscode');
-const { LanguageClient, LanguageClientOptions, ServerOptions } = require('vscode-languageclient/node');
+const { LanguageClient } = require('vscode-languageclient/node');
 
 let client;
 
 function activate(context) {
-    // Показываем сообщение, что клиент активировался
-    vscode.window.showInformationMessage('YTL Extension activated!');
-
-    const serverPath = context.asAbsolutePath(path.join('ytl-lsp', 'target', 'debug', 'ytl-lsp.exe'));
+    // Определяем имя бинарника в зависимости от ОС
+    const binaryName = process.platform === 'win32' ? 'ytl-lsp.exe' : 'ytl-lsp';
+    
+    // Автоматически находим путь к бинарнику внутри папки расширения (работает и по F5, и в .vsix)
+    const serverPath = context.asAbsolutePath(path.join('bin', binaryName));
 
     // Проверяем, существует ли файл сервера
-    if (!require('fs').existsSync(serverPath)) {
-        vscode.window.showErrorMessage(`Server not found at: ${serverPath}`);
+    if (!fs.existsSync(serverPath)) {
+        vscode.window.showErrorMessage(`YTL Server not found at: ${serverPath}`);
         return;
+    }
+
+    // Даем права на запуск для Linux/macOS (на Windows безопасно игнорируется)
+    if (process.platform !== 'win32') {
+        try {
+            fs.chmodSync(serverPath, 0o755);
+        } catch (e) {
+            console.error(`Failed to chmod server binary: ${e.message}`);
+        }
     }
 
     const serverOptions = {
@@ -24,12 +35,11 @@ function activate(context) {
     const clientOptions = {
         documentSelector: [{ scheme: 'file', language: 'ytl' }],
         synchronize: {
-            fileEvents: vscode.workspace.createFileSystemWatcher('**/*.ytl') 
+            fileEvents: vscode.workspace.createFileSystemWatcher('**/*.ytl')
         },
-        // Костыль для бага Content-Length в tower-lsp
         errorHandler: {
-            error: () => ({ action: 1 }), // 1 = Continue (не закрывать соединение)
-            closed: () => ({ action: 1 })
+            error: () => ({ action: 1 }), // Continue
+            closed: () => ({ action: 1 }) // DoNotRestart (чтобы не спамить при падении)
         }
     };
 
@@ -40,47 +50,42 @@ function activate(context) {
         clientOptions
     );
 
-    client.start();
-    vscode.window.showInformationMessage('YTL LSP client started!');
+    client.start().catch(err => {
+        vscode.window.showErrorMessage(`YTL LSP Error: ${err.message}`);
+    });
 
     // =========================================================
     // КОМАНДА ДЛЯ ВЫБОРА ПОЛЕЙ (ВЫЗЫВАЕТСЯ ИЗ RUST)
     // =========================================================
-    let disposable = vscode.commands.registerCommand('ytl.selectInheritedFields', async (uri, lineNumber, fields, indent) => {
-        // 1. Формируем список для окна
-        const items = fields.map(f => ({
-            label: `${f[0]} ${f[1]}`, // Например: "speed 32"
-            description: 'Inherited field',
-            picked: true // По умолчанию ставим галочку на все
-        }));
+    const disposable = vscode.commands.registerCommand(
+        'ytl.selectInheritedFields',
+        async (uri, lineNumber, fields, indent) => {
+            const items = fields.map(f => ({
+                label: `${f[0]} ${f[1]}`,
+                description: 'Inherited field',
+                picked: true
+            }));
 
-        // 2. Показываем окно с галочками и поиском
-        const selected = await vscode.window.showQuickPick(items, {
-            canPickMany: true,
-            placeHolder: 'Select inherited fields to insert',
-            title: 'YTL: Inherit Fields'
-        });
+            const selected = await vscode.window.showQuickPick(items, {
+                canPickMany: true,
+                placeHolder: 'Select inherited fields to insert',
+                title: 'YTL: Inherit Fields'
+            });
 
-        // Если юзер закрыл окно или ничего не выбрал - выходим
-        if (!selected || selected.length === 0) {
-            return;
+            if (!selected || selected.length === 0) {
+                return;
+            }
+
+            const textToInsert = '\n' + selected.map(s => `${indent}${s.label}\n`).join('');
+
+            const edit = new vscode.WorkspaceEdit();
+            const parsedUri = vscode.Uri.parse(uri);
+            const position = new vscode.Position(lineNumber + 1, 0);
+
+            edit.insert(parsedUri, position, textToInsert);
+            await vscode.workspace.applyEdit(edit);
         }
-
-        // 3. Формируем текст для вставки 
-        // ВАЖНО: Добавляем \n в самое начало, чтобы первое поле не прилипало к строке с блоком
-        const textToInsert = "\n" + selected.map(s => `${indent}${s.label}\n`).join('');
-
-        // 4. Вставляем в файл
-        const edit = new vscode.WorkspaceEdit();
-        // Преобразуем строку URI обратно в объект vscode.Uri
-        const parsedUri = vscode.Uri.parse(uri); 
-        
-        // Вставляем на следующую строку после наследования (lineNumber + 1)
-        const position = new vscode.Position(lineNumber + 1, 0);
-        
-        edit.insert(parsedUri, position, textToInsert);
-        await vscode.workspace.applyEdit(edit);
-    });
+    );
 
     context.subscriptions.push(disposable);
 }

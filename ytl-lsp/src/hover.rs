@@ -4,7 +4,6 @@ pub fn get_hover(text: &str, position: Position) -> Option<Hover> {
     let lines: Vec<&str> = text.lines().collect();
     let line = lines.get(position.line as usize)?;
 
-    // 1. Подсказка для Include
     if line.contains("Include") {
         return Some(Hover {
             contents: HoverContents::Markup(MarkupContent {
@@ -15,7 +14,6 @@ pub fn get_hover(text: &str, position: Position) -> Option<Hover> {
         });
     }
 
-    // 2. Подсказка для Attach
     if line.contains("Attach") {
         return Some(Hover {
             contents: HoverContents::Markup(MarkupContent {
@@ -26,7 +24,6 @@ pub fn get_hover(text: &str, position: Position) -> Option<Hover> {
         });
     }
 
-    // 3. Подсказка для Realm
     if line.contains("Realm") {
         return Some(Hover {
             contents: HoverContents::Markup(MarkupContent {

@@ -41,7 +41,7 @@ impl tower_lsp_server::LanguageServer for Backend {
     }
 
     async fn initialized(&self, _: InitializedParams) {
-        self.client.log_message(MessageType::INFO, "YTL Server 0.3.0 is ready!").await;
+        self.client.log_message(MessageType::INFO, "YTL Server 0.3.0 is ready").await;
     }
 
     async fn shutdown(&self) -> Result<()> {
@@ -101,9 +101,6 @@ impl tower_lsp_server::LanguageServer for Backend {
         Ok(None)
     }
 
-    // МЕТОД inlay_hint ПОЛНОСТЬЮ УДАЛЕН
-
-    // Лампочка (автовставка полей)
     async fn code_action(&self, params: CodeActionParams) -> Result<Option<CodeActionResponse>> {
         let uri = params.text_document.uri;
         let docs = self.documents.lock().await;

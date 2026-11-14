@@ -1,4 +1,9 @@
-.vscode/**
-.vscode-test/**
+ytl-lsp/src/**
+ytl-lsp/target/**
+ytl-lsp/Cargo.toml
+ytl-lsp/Cargo.lock
 .gitignore
-vsc-extension-quickstart.md
+.gitattributes
+.vscode/**
+.github/**
+*.pdb
