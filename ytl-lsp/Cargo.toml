@@ -1,0 +1,12 @@
+[package]
+name = "ytl-lsp"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tower-lsp-server = "0.23"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ipnet = "2.9"
+regex = "1"
