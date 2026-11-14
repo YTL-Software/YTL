@@ -1,70 +1,77 @@
-# YTL Language Support (1.2.0)
+# YTL (Yggdrasil Template Language) v0.3.0
 <img src="icon.jpg" width="96" height="96" align="right" />
 
+***YTL*** is a modern, indented configuration language designed specifically for ***Game Development*** and ***Network Engineering.*** It combines the readability of YAML with the power of Nix, offering native data types and a custom, blazing-fast Language Server Protocol (LSP) written in Rust.
 
-A powerful VS Code extension providing comprehensive syntax highlighting and deep structural analysis for **YTL (Yggdrasil Template Language)** — a modern, indented data language designed for configuration and object mapping.
+# Why YTL?
+Traditional configuration formats (JSON, YAML, TOML) were not built for complex systems. They lack native networking types, require boilerplate for environment overrides, and don't understand game development concepts like damage ranges or loot chances.
 
-## Key Features
+# YTL solves this by providing:
+- ***Realms*** (Environment Overlays): Stop duplicating code for `dev`, `prod`, `Easy`, or `Hardcore`. Use `Realm` to overlay specific changes without rewriting the base block.
+- ***ECS Composition (Attach):*** Bring Entity-Component-System architecture to your configs. Use `Attach` to inject traits (like `fire_immunity` or `poison`) directly into entities.
+- ***Immutability (Const):*** Protect critical data (like network ports or base stats) from being accidentally overwritten in child blocks.
+- ***Native Network Types:*** Out-of-the-box support for IPv4, IPv6, MAC addresses, and CIDR blocks.
+- ***Native GameDev Types:*** Built-in support for Vectors `(10, 5, 2)`, RGBA `(255, 0, 0, 255)`, Ranges `13~30` (for damage or loot), and Percentages `25%`.
+- ***Smart Rust LSP:*** Includes a custom Language Server written in Rust that provides real-time validation, intelligent hover hints, autocompletion, and interactive field inheritance.
 
-- **Infinite Indentation System:** Seamlessly create new nodes without ever worrying about limit constraints.
-- **Built-in Network Format Recognition:** Instantly detects and parses critical network entities including IPv4, IPv6, MAC addresses, ports, sockets, URLs, and emails.
-- **Multiple Data Inheritance:** Allows merging multiple parent structures simultaneously (e.g., `from Net, Time`), giving you maximum flexibility without code duplication.
-- **Automated Structure Expansion:** Instantly populates inherited properties and nodes from parent structures upon declaration, eliminating manual boilerplate setup.
 
+# Syntax Examples
+*Game Development (RPG Balance)*
 
-## Language Specification & Code Example
+```yaml
+Include ytl://base_stats.ytl
 
-Save your configuration file with the `.ytl` extension. Below is an overview of how your structures look in the editor:
+Warrior{Character}:
+    health 100
+    damage 13~30          // Native damage range
+    Attach ytl://components/fire_immunity.ytl
 
-```puppet
-YTL:
-    name "YTL (Yggdrasil Template Language)"
-    version_id 1.2.0
+    Realm "Hardcore":
+        health 50
+        damage 25~50      // Overrides only in Hardcore mode
 
-    Network_base:
-        IPv4[
-            0.0.0.0, 127.0.0.1:80, 0.0.0.0:8080
-        ]
+Loot_Goblin:
+    Gold 50% 1~5          // 50% chance to drop 1-5 gold
+    Sword 15% 1
+```
+*Network Engineering*
+```yaml
+Server:
+    Const port 8080       // Cannot be modified by child blocks
+    ip 192.168.1.1
+    subnet 192.168.1.0/24 // Native CIDR
 
-        IPv6[
-            [::1]:8080, fe80::, 2001:4860:4860::
-        ]
+    Realm "prod":
+        host "example.com"
+        // port 443       <-- This would throw an LSP error because of Const
+```
+# Tooling & Architecture
+YTL is not just a spec; it's a fully-fledged ecosystem:
 
-        CIDR    0.0.0.0/0, ::/0
-        URI     127.0.0.1:8000
-        URL     http://0.0.0.0
-        MAC     00:1A:2B:3C:4D:5E, 00-1A-2B-3C-4D-5E, 001A.2B3C.4D5E
+1.  **TextMate Grammar:** Full syntax highlighting for VS Code, correctly distinguishing between versions (`1.2.3`), IP addresses, ranges, and comments.
 
-    Date:
-        ISO_ZULU_Time   2026-10-26T19:50:47Z
-        RFC_OFFSET_Time 2026-10-26T14:20:00+03:30
-        Local_calendar  2026-10-26
-        Time            14.5s
+2.  **Rust LSP Server (`ytl-lsp`):**
+    - **Diagnostics:** Catches syntax errors, invalid IPs/MACs, unclosed brackets, and `Const` violations in real-time.
+    - **Interactive Inheritance:** When you inherit a block (`Cax{Car}:`), the LSP offers a QuickPick menu to automatically insert inherited fields.
+    - **Hover & Completion:** Context-aware suggestions for `Include`, `Attach`, `Realm`, and block names.
+
+# Installation (Dev Build)
+1. Clone the repository.
+2. Build the Rust LSP:
+
+```bash
+cd ytl-lsp
+cargo build --release
 ```
 
-Inheritance Example:
+3. Open the root folder in VS Code and press `F5` to launch the Extension Development Host.
 
+# Roadmap
 
-```puppet
-Date:
-    Time 2026-11-26T14:30
-    Time2 1995-06-21
+- [x] **v0.3.0:** New syntax (`Realm`, `Attach`, `Const`), Network validators, TextMate grammar, Rust LSP.
+- [ ] **v0.4.0:** C# SDK (for Unity/Godot integration).
+- [ ] **v0.5.0:** N/A.
+- [ ] **v0.6.0:** N/A.
 
-Date2 from Date:
-Date2:
-    Time 2021-11-26T14:10
-    Time2 1999-01-10
-```
-
-## Implementations
-
-| Language | Repo | v1.2.0 | Remarks |
-| :--- | :--- | :--- | :--- |
-| **Go** | https://github.com/Regentq/YTL-GO | ✔️ | WIP |
-| **C** | *Not implemented* | N/A | N/A |
-| **C++** | *Not implemented* | N/A | N/A |
-| **C#** | *Not implemented* | N/A | N/A |
-
-### Contributing
-
-You can become a part of the YTL development team simply by finding bugs and submitting them! Feel free to open an issue or submit a pull request if you want to help improve the YTL syntax or its parser implementations :)
+# License
+Apache License 2.0
