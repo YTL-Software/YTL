@@ -1,28 +1,28 @@
-use regex::Regex;
+use std::net::{Ipv4Addr, Ipv6Addr};
+use ipnet::IpNet;
+use uuid::Uuid;
+use eui48::MacAddress;
 
 pub fn validate_ipv4(text: &str) -> Result<(), String> {
-    if text.parse::<std::net::Ipv4Addr>().is_ok() {
+    if text.parse::<Ipv4Addr>().is_ok() {
         return Ok(());
     }
     
+    // Если стандартный парсер не справился, даем более понятную ошибку
     let parts: Vec<&str> = text.split('.').collect();
     if parts.len() != 4 {
         return Err(format!("expected 4 octets, found {}", parts.len()));
     }
-    
     for (i, part) in parts.iter().enumerate() {
         if part.is_empty() {
             return Err(format!("octet {} is empty", i + 1));
         }
-
         if part.len() > 3 {
             return Err(format!("octet {} is too long ({} > 3 digits)", i + 1, part.len()));
         }
-
         if part.len() > 1 && part.starts_with('0') {
             return Err(format!("octet {} has a leading zero ('{}')", i + 1, part));
         }
-
         if let Ok(num) = part.parse::<u16>() {
             if num > 255 {
                 return Err(format!("octet {} is out of range ({} > 255)", i + 1, num));
@@ -33,17 +33,24 @@ pub fn validate_ipv4(text: &str) -> Result<(), String> {
     }
     Err("invalid IPv4 format".to_string())
 }
+
 pub fn validate_ipv6(text: &str) -> Result<(), String> {
-    if text.parse::<std::net::Ipv6Addr>().is_ok() {
+    let clean_text = if text.starts_with('[') {
+        text.split(']').next().unwrap_or(text).trim_start_matches('[')
+    } else {
+        text
+    };
+
+    if clean_text.parse::<Ipv6Addr>().is_ok() {
         return Ok(());
     }
 
-    if text.matches("::").count() > 1 {
+    if clean_text.matches("::").count() > 1 {
         return Err("multiple '::' are not allowed".to_string());
     }
 
-    let has_double_colon = text.contains("::");
-    let groups: Vec<&str> = text.split(':').collect();
+    let has_double_colon = clean_text.contains("::");
+    let groups: Vec<&str> = clean_text.split(':').collect();
 
     if !has_double_colon && groups.len() != 8 {
         return Err(format!("expected 8 groups, found {}", groups.len()));
@@ -53,14 +60,10 @@ pub fn validate_ipv6(text: &str) -> Result<(), String> {
     }
 
     for (i, group) in groups.iter().enumerate() {
-        if group.is_empty() {
-            continue;
-        }
-        
+        if group.is_empty() { continue; }
         if group.len() > 4 {
             return Err(format!("group {} is too long ({} > 4 characters)", i + 1, group.len()));
         }
-
         if !group.chars().all(|c| c.is_ascii_hexdigit()) {
             return Err(format!("group {} contains invalid characters ('{}')", i + 1, group));
         }
@@ -70,7 +73,7 @@ pub fn validate_ipv6(text: &str) -> Result<(), String> {
 }
 
 pub fn validate_cidr(text: &str) -> Result<(), String> {
-    if text.parse::<ipnet::IpNet>().is_ok() {
+    if text.parse::<IpNet>().is_ok() {
         return Ok(());
     }
 
@@ -104,35 +107,60 @@ pub fn validate_cidr(text: &str) -> Result<(), String> {
     Err("invalid CIDR subnet".to_string())
 }
 
-pub fn is_version(text: &str) -> bool{
-    let re = Regex::new(r"^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+-]*)?$").unwrap();
-    re.is_match(text)
+pub fn is_version(text: &str) -> bool {
+    let base = if let Some(idx) = text.find(|c| c == '-' || c == '+') {
+        &text[..idx]
+    } else {
+        text
+    };
+
+    let parts: Vec<&str> = base.split('.').collect();
+    if parts.len() != 3 { return false; }
+    for part in parts {
+        if part.is_empty() || !part.chars().all(|c| c.is_ascii_digit()) {
+            return false;
+        }
+    }
+    true
 }
 
+// ==========================================
+// НОВАЯ ВАЛИДАЦИЯ (через крейты)
+// ==========================================
+
 pub fn validate_mac(text: &str) -> Result<(), String> {
+    // eui48 умеет парсить "00:11:22:33:44:55", "00-11-22-33-44-55" и Cisco "0011.2233.4455"
+    if MacAddress::parse_str(text).is_ok() {
+        return Ok(());
+    }
+    
+    // Если не распарсилось, даем понять, что не так (проверяем базовые вещи)
     if text.contains(':') && text.contains('-') {
         return Err("mixed separators (use either ':' or '-')".to_string());
     }
-
-    if text.contains('.') {
-        let re = regex::Regex::new(r"^([0-9A-Fa-f]{4}\.){2}[0-9A-Fa-f]{4}$").unwrap();
-        if re.is_match(text) {
-            return Ok(());
-        }
-        return Err("invalid Cisco format (expected XXXX.XXXX.XXXX)".to_string());
+    
+    let expected_len = if text.contains('.') { 14 } else { 17 };
+    if text.len() != expected_len {
+        return Err(format!("invalid format (expected {} characters)", expected_len));
     }
+    
+    Err("invalid MAC address format".to_string())
+}
 
-    let re = regex::Regex::new(r"^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$").unwrap();
-    if re.is_match(text) {
+pub fn validate_uuid(text: &str) -> Result<(), String> {
+    if Uuid::parse_str(text).is_ok() {
         return Ok(());
     }
 
-    if text.len() != 17 {
-        return Err(format!("expected 17 characters, found {}", text.len()));
-    }
-    if !text.chars().all(|c| c.is_ascii_hexdigit() || c == ':' || c == '-') {
-        return Err("contains invalid characters (only 0-9, A-F, ':' or '-')".to_string());
+    // Если не распарсилось, даем понятную ошибку
+    let expected_len = 36;
+    if text.len() != expected_len {
+        return Err(format!("expected 36 characters, found {}", text.len()));
     }
 
-    Err("invalid MAC address format".to_string())
+    if text.matches('-').count() != 4 {
+        return Err(format!("expected 4 hyphens, found {}", text.matches('-').count()));
+    }
+
+    Err("invalid UUID format".to_string())
 }
