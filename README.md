@@ -1,4 +1,4 @@
-# YTL (Yggdrasil Template Language) v0.3.0
+# YTL (Yggdrasil Template Language) v0.4.0
 <img src="icon.jpg" width="96" height="96" align="right" />
 
 ***YTL*** is a modern, indented configuration language designed specifically for ***Game Development*** and ***Network Engineering.*** It combines the readability of YAML with the power of Nix, offering native data types and a custom, blazing-fast Language Server Protocol (LSP) written in Rust.
@@ -67,10 +67,9 @@ cargo build --release
 3. Open the root folder in VS Code and press `F5` to launch the Extension Development Host.
 
 # Roadmap
-
-- [x] **v0.3.0:** New syntax (`Realm`, `Attach`, `Const`), Network validators, TextMate grammar, Rust LSP.
 - [ ] **v0.4.0:** C# SDK (for Unity/Godot integration).
 - [ ] **v0.5.0:** N/A.
+- [ ] ""v0.6.0:** N/A
 - [ ] **v0.6.0:** N/A.
 
 # License
