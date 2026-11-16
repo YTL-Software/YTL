@@ -67,10 +67,10 @@ cargo build --release
 3. Open the root folder in VS Code and press `F5` to launch the Extension Development Host.
 
 # Roadmap
-- [ ] **v0.4.0:** C# SDK (for Unity/Godot integration).
-- [ ] **v0.5.0:** N/A.
-- [ ] ""v0.6.0:** N/A
+- [x] **v0.4.0:** CST LSP, Smart Validation, Cross-file Inheritance, Inlay Hints, and C# Parser (for Unity/Godot).
+- [ ] **v0.5.0:** CLI compiler— Convert YTL to JSON/YAML/XML and integrate it into Unity/Godot via native C#/C++ bindings
 - [ ] **v0.6.0:** N/A.
+- [ ] **v0.7.0:** N/A.
 
 # License
 Apache License 2.0
