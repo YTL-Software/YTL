@@ -1,0 +1,46 @@
+# Russian localization for YTL LSP
+ErrorMessages:
+    # IPv4
+    ipv4_invalid_format "IPv4: неверный формат"
+    ipv4_expected_octets "Ожидалось 4 октета, найдено {}."
+    ipv4_empty_octet "IPv4: пустой октет"
+    ipv4_octet_too_long "IPv4: октет слишком длинный"
+    ipv4_leading_zero "IPv4: ведущий ноль"
+    ipv4_out_of_range "IPv4: октет вне диапазона"
+    ipv4_all_out_of_range "IPv4: все октеты вне диапазона"
+    ipv4_all_out_of_range_msg "Все 4 октета превышают максимальное значение 255."
+    ipv4_multiple_out_of_range "IPv4: несколько октетов вне диапазона"
+    ipv4_multiple_out_of_range_msg "Октеты {} превышают максимальное значение 255."
+    ipv4_invalid_chars "IPv4: недопустимый символ"
+    ipv4_invalid_chars_msg "Октеты {} содержат нецифровые символы."
+    
+    # IPv6
+    ipv6_whitespace "IPv6: пробелы запрещены"
+    ipv6_brackets "IPv6: скобки запрещены"
+    ipv6_multiple_colons "IPv6: несколько '::'"
+    ipv6_triple_colons "IPv6: неверный формат (:: :)"
+    ipv6_missing_group "IPv6: не хватает группы"
+    ipv6_too_many_groups "IPv6: слишком много групп"
+    ipv6_empty_first_group "IPv6: пустая первая группа"
+    ipv6_empty_last_group "IPv6: пустая последняя группа"
+    ipv6_invalid_embedded_ipv4 "IPv6: неверный вложенный IPv4"
+    ipv6_group_too_long "IPv6: группа слишком длинная"
+    ipv6_invalid_char "IPv6: недопустимый символ"
+    ipv6_invalid_format "IPv6: неверный формат"
+
+    # UUID
+    uuid_urn "UUID: префикс URN запрещен"
+    uuid_braces "UUID: фигурные скобки запрещены"
+    uuid_invalid_length "UUID: неверная длина"
+    uuid_missing_hyphens "UUID: не хватает дефисов"
+    uuid_invalid_format "UUID: неверный формат"
+    uuid_invalid_char "UUID: недопустимый символ"
+
+    # MAC
+    mac_empty "MAC: пустой адрес"
+    mac_whitespace "MAC: содержит пробелы"
+    mac_invalid_char "MAC: недопустимый символ"
+    mac_invalid_length "MAC: неверная длина"
+    mac_mixed_separators "MAC: смешанные разделители"
+    mac_invalid_grouping "MAC: неверная группировка"
+    mac_invalid_group_len "MAC: неверная длина группы"

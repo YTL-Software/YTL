@@ -1,41 +1,33 @@
 use crate::syntax::{SyntaxNode, YtlKind};
-use crate::validators;
+use crate::validators::{self, ValidationError};
 use crate::fs_utils::resolve_path;
 use tower_lsp_server::ls_types::{Diagnostic, DiagnosticSeverity, Position, Range, Uri};
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashSet};
 use std::path::{Path, PathBuf};
+use crate::locales;
+
+// Добавляем Display для ValidationError, чтобы можно было использовать {} в format!
+impl std::fmt::Display for ValidationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
 
 pub fn validate(
     cst: &SyntaxNode,
     text: &str,
     uri: &Uri,
     root_path: Option<&Path>,
+    locale: &locales::Locale,
 ) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut const_fields: Vec<String> = Vec::new();
     let mut seen_block = false;
-    let mut block_names: HashMap<String, rowan::TextRange> = HashMap::new();
 
     for node in cst.descendants() {
         match node.kind() {
             YtlKind::Block => {
                 seen_block = true;
-                if let Some(name_token) = node.children_with_tokens()
-                    .filter_map(|el| el.into_token())
-                    .find(|t| t.kind() == YtlKind::BlockName)
-                {
-                    let name = name_token.text().trim().to_string();
-                    if let Some(_prev_range) = block_names.get(&name) {
-                        diagnostics.push(create_err(
-                            text,
-                            name_token.text_range().start(),
-                            name_token.text_range().end(),
-                            &format!("Duplicate block name '{}'.", name),
-                        ));
-                    } else {
-                        block_names.insert(name, name_token.text_range());
-                    }
-                }
             }
             YtlKind::ConstKeyword => {
                 if let Some(field_name) = node
@@ -138,7 +130,6 @@ pub fn validate(
                                 let target_path = resolve_path(rel_path, &file_dir, root_path);
 
                                 if let Some((_content, attached_cst)) = crate::fs_utils::read_ytl_file(&target_path) {
-                                    // Собираем поля из Attach
                                     let mut attached_fields = HashSet::new();
                                     for child in attached_cst.descendants() {
                                         if child.kind() == YtlKind::Field {
@@ -152,7 +143,6 @@ pub fn validate(
                                         }
                                     }
 
-                                    // Проверяем сиблинги в текущем блоке
                                     if let Some(parent_block) = node.parent() {
                                         for sibling in parent_block.children() {
                                             if sibling.kind() == YtlKind::Field {
@@ -179,96 +169,146 @@ pub fn validate(
                         }
                     }
 
-                    // === УМНАЯ ВАЛИДАЦИЯ ДАННЫХ (ТОЛЬКО ПО ЗНАЧЕНИЮ) ===
+                    // === УМНАЯ ВАЛИДАЦИЯ (С ТИПОМ И БЕЗ) ===
+                    let name_lower = name.to_lowercase();
+                    
                     for val in values {
-                        if val.starts_with("ytl://") || val.starts_with("http://") || val.starts_with("https://") {
+                        if val.starts_with("ytl://") || val.starts_with("http://") || val.starts_with("https://") || val.is_empty() {
+                            continue;
+                        }
+                        if val.contains('>') {
+                            let parts: Vec<&str> = val.splitn(2, '>').map(|s| s.trim()).collect();
+                            if parts.len() != 2 {
+                                let val_range = find_value_range(&node, &val);
+                                diagnostics.push(create_err(text, val_range.start(), val_range.end(), "Invalid type syntax. Expected '> type value'"));
+                                continue;
+                            }
+
+                            let right_side = parts[1];
+
+                            let mut split_iter = right_side.splitn(2, char::is_whitespace);
+                            let type_name = split_iter.next().unwrap_or("").trim();
+                            
+                            let value_to_check = split_iter.next().unwrap_or("").trim();
+
+                            if type_name.is_empty() || value_to_check.is_empty() {
+                                let val_range = find_value_range(&node, &val);
+                                diagnostics.push(create_err(text, val_range.start(), val_range.end(), "Missing value after type (e.g. ip > ipv4 192.168.1.1)"));
+                                continue;
+                            }
+
+                            let mut clean_value = value_to_check;
+                            if clean_value.len() >= 2 && (
+                                (clean_value.starts_with('"') && clean_value.ends_with('"')) || 
+                                (clean_value.starts_with('\'') && clean_value.ends_with('\''))
+                            ) {
+                                clean_value = &clean_value[1..clean_value.len()-1];
+                            }
+
+                            let result = match type_name {
+                                "ipv4" => validators::validate_ipv4(clean_value, locale),
+                                "ipv6" => validators::validate_ipv6(clean_value, locale),
+                                "cidr" => validators::validate_cidr(clean_value, locale),
+                                "mac"  => validators::validate_mac(clean_value, locale),
+                                "uuid" => validators::validate_uuid(clean_value, locale),
+                                _ => Err(ValidationError {
+                                    title: format!("Unknown type: '{}'", type_name),
+                                    message: "Allowed types: ipv4, ipv6, cidr, mac, uuid.".to_string(),
+                                }),
+                            };
+
+                            if let Err(reason) = result {
+                                let node_start_offset = usize::from(node.text_range().start());
+                                let node_end_offset = usize::from(node.text_range().end());
+                                
+                                // Безопасный срез: проверяем, что не выходим за пределы текста
+                                let node_text = if node_end_offset <= text.len() {
+                                    &text[node_start_offset..node_end_offset]
+                                } else {
+                                    ""
+                                };
+
+                                let mut final_start = node.text_range().start();
+                                let mut final_end = node.text_range().end();
+
+                                if let Some(arrow_idx) = node_text.find('>') {
+                                    let after_arrow = &node_text[arrow_idx + 1..];
+                                    
+                                    if !clean_value.is_empty() {
+                                        if let Some(value_idx) = after_arrow.rfind(clean_value) {
+                                            let absolute_start = node_start_offset + arrow_idx + 1 + value_idx;
+                                            let absolute_end = absolute_start + clean_value.len();
+                                            final_start = rowan::TextSize::from(absolute_start as u32);
+                                            final_end = rowan::TextSize::from(absolute_end as u32);
+                                        }
+                                    } else {
+                                        if let Some(quote_idx) = after_arrow.find('"') {
+                                            let absolute_start = node_start_offset + arrow_idx + 1 + quote_idx;
+                                            let absolute_end = absolute_start + 2;
+                                            final_start = rowan::TextSize::from(absolute_start as u32);
+                                            final_end = rowan::TextSize::from(absolute_end as u32);
+                                        }
+                                    }
+                                }
+                                let full_message = format!("{}\n{}", reason.title, reason.message);
+                                diagnostics.push(create_err(text, final_start, final_end, &full_message));
+                            }
                             continue;
                         }
 
-                        let val_lower = val.to_lowercase();
-                        
-                        let parts_colon: Vec<&str> = val_lower.split(':').collect();
-                        let parts_dash: Vec<&str> = val_lower.split('-').collect();
-                        let parts_dot: Vec<&str> = val_lower.split('.').collect();
-
-                        let is_cidr_like = val_lower.contains('/') && (val_lower.contains('.') || val_lower.contains(':'));
-                        
-                        let is_mac_like = (parts_colon.len() == 6 && parts_colon.iter().all(|p| p.len() == 2))
-                            || (parts_dash.len() == 6 && parts_dash.iter().all(|p| p.len() == 2))
-                            || (parts_dot.len() == 3 && parts_dot.iter().all(|p| p.len() == 4 && p.chars().all(|c| c.is_ascii_hexdigit())));
-
-                        let is_cisco_mac_like = val_lower.contains('.') 
-                            && val_lower.chars().all(|c| c.is_ascii_hexdigit() || c == '.')
-                            && !val_lower.chars().all(|c| c.is_ascii_digit() || c == '.');
-
-                        let is_ipv6_like = !is_mac_like 
-                            && (val_lower.contains("::") || val_lower.matches(':').count() == 7)
-                            && !val_lower.contains('.')
-                            && !val_lower.contains("://");
-
-                        let is_ipv4_like = val_lower.matches('.').count() == 3 
-                            && !val_lower.contains('/') 
-                            && !val_lower.contains(':')
-                            && !val_lower.chars().any(|c| c.is_alphabetic());
-
-                        let is_uuid_like = val_lower.len() >= 30 && val_lower.len() <= 40 && val_lower.matches('-').count() == 4;
-
-                        if is_uuid_like {
-                            if let Err(reason) = validators::validate_uuid(&val) {
-                                let val_range = find_value_range(&node, &val);
-                                diagnostics.push(create_err(
-                                    text,
-                                    val_range.start(),
-                                    val_range.end(),
-                                    &format!("Invalid UUID: {}", reason),
-                                ));
-                            }
-                        }
-                        else if is_cidr_like {
-                            if let Err(reason) = validators::validate_cidr(&val) {
-                                let val_range = find_value_range(&node, &val);
-                                diagnostics.push(create_err(
-                                    text,
-                                    val_range.start(),
-                                    val_range.end(),
-                                    &format!("Invalid CIDR: {}", reason),
-                                ));
-                            }
-                        }
-                        else if is_mac_like || is_cisco_mac_like || (val_lower.contains(':') && !is_ipv6_like && !is_uuid_like) {
-                            if let Err(reason) = validators::validate_mac(&val) {
-                                let val_range = find_value_range(&node, &val);
-                                diagnostics.push(create_err(
-                                    text,
-                                    val_range.start(),
-                                    val_range.end(),
-                                    &format!("Invalid MAC: {}", reason),
-                                ));
-                            }
-                        }
-                        else if is_ipv6_like {
-                            if let Err(reason) = validators::validate_ipv6(&val) {
-                                let val_range = find_value_range(&node, &val);
-                                diagnostics.push(create_err(
-                                    text,
-                                    val_range.start(),
-                                    val_range.end(),
-                                    &format!("Invalid IPv6: {}", reason),
-                                ));
-                            }
-                        }
-                        else if is_ipv4_like {
-                            if !validators::is_version(&val) {
-                                if let Err(reason) = validators::validate_ipv4(&val) {
-                                    let val_range = find_value_range(&node, &val);
-                                    diagnostics.push(create_err(
-                                        text,
-                                        val_range.start(),
-                                        val_range.end(),
-                                        &format!("Invalid IPv4: {}", reason),
-                                    ));
+                        // 2. MAC без стрелок
+                        if name_lower.starts_with("mac") || name_lower == "hw" || name_lower == "hardware" {
+                            let mut mac_value = val.clone();
+                            
+                            if val.contains('>') {
+                                let parts: Vec<&str> = val.split('>').map(|s| s.trim()).collect();
+                                if parts.len() == 2 {
+                                    let right_side: Vec<&str> = parts[1].split_whitespace().collect();
+                                    if right_side.len() >= 2 {
+                                        mac_value = right_side[1..].join(" ");
+                                    }
                                 }
                             }
+
+                            let clean_mac = mac_value.trim_matches('"').trim_matches('\'').trim();
+
+                            if let Err(reason) = validators::validate_mac(clean_mac, locale) {
+                                let val_range = find_value_range(&node, &val);
+                                diagnostics.push(create_err(text, val_range.start(), val_range.end(), &format!("Invalid MAC: {}", reason)));
+                            }
+                            continue;
+                        }
+
+                        // 3. IP и CIDR без стрелок
+                        if name_lower.starts_with("ip") || name_lower.starts_with("cidr") || name_lower == "gateway" || name_lower == "subnet" {
+                            if val.contains('/') {
+                                if let Err(reason) = validators::validate_cidr(&val, locale) {
+                                    let val_range = find_value_range(&node, &val);
+                                    diagnostics.push(create_err(text, val_range.start(), val_range.end(), &format!("Invalid CIDR: {}", reason)));
+                                }
+                            } 
+                            else if val.contains(':') {
+                                if let Err(reason) = validators::validate_ipv6(&val, locale) {
+                                    let val_range = find_value_range(&node, &val);
+                                    diagnostics.push(create_err(text, val_range.start(), val_range.end(), &format!("Invalid IPv6: {}", reason)));
+                                }
+                            } 
+                            else {
+                                if let Err(reason) = validators::validate_ipv4(&val, locale) {
+                                    let val_range = find_value_range(&node, &val);
+                                    diagnostics.push(create_err(text, val_range.start(), val_range.end(), &format!("Invalid IPv4: {}", reason)));
+                                }
+                            }
+                            continue;
+                        }
+
+                        // 4. UUID без стрелок
+                        if name_lower.starts_with("uuid") || name_lower.contains("uuid") || name_lower == "id" {
+                            if let Err(reason) = validators::validate_uuid(&val, locale) {
+                                let val_range = find_value_range(&node, &val);
+                                diagnostics.push(create_err(text, val_range.start(), val_range.end(), &format!("Invalid UUID: {}", reason)));
+                            }
+                            continue;
                         }
                     }
 
@@ -294,6 +334,23 @@ fn find_value_range(node: &SyntaxNode, target: &str) -> rowan::TextRange {
     for element in node.children_with_tokens() {
         if let Some(token) = element.as_token() {
             if token.kind() == YtlKind::FieldValue && token.text().trim() == target {
+                let text = token.text();
+                
+                if let Some(arrow_idx) = text.find('>') {
+                    let after_arrow = &text[arrow_idx + 1..];
+                    
+                    if let Some(first_ws) = after_arrow.find(char::is_whitespace) {
+                        let value_str = &after_arrow[first_ws..].trim();
+                        
+                        if !value_str.is_empty() {
+                            if let Some(offset) = text.find(value_str) {
+                                let start = token.text_range().start() + rowan::TextSize::from(offset as u32);
+                                let end = start + rowan::TextSize::from(value_str.len() as u32);
+                                return rowan::TextRange::new(start, end);
+                            }
+                        }
+                    }
+                }
                 return token.text_range();
             }
         }

@@ -66,19 +66,56 @@ pub fn tokenize(text: &str) -> Vec<Token> {
             }
             tokens.push(Token { kind: TokenKind::Whitespace, text: ws, line: line_idx, char: start_char });
         }
-        // 3. КОММЕНТАРИИ (//...)
-        else if rest.starts_with("//") {
+        // 3. КОММЕНТАРИИ (//... и /* ... */ и #...)
+        else if rest.starts_with("//") || rest.starts_with("/*") || ch == '#' {
             let start_char = char_idx;
             let mut comment = String::new();
-            while let Some(&(_, c)) = chars.peek() {
-                if c != '\r' && c != '\n' {
+            
+            if ch == '#' {
+                // Комментарий через решетку
+                comment.push('#');
+                chars.next();
+                char_idx += 1;
+                while let Some(&(_, c)) = chars.peek() {
+                    if c != '\r' && c != '\n' {
+                        comment.push(c);
+                        chars.next();
+                        char_idx += 1;
+                    } else { break; }
+                }
+            } else if rest.starts_with("/*") {
+                // Блочный комментарий
+                comment.push_str("/*");
+                chars.next(); // съедаем /
+                chars.next(); // съедаем *
+                char_idx += 2;
+                
+                while let Some(&(_, c)) = chars.peek() {
                     comment.push(c);
                     chars.next();
                     char_idx += 1;
-                } else {
-                    break;
+                    if c == '*' && chars.peek().map_or(false, |&(_, next_c)| next_c == '/') {
+                        comment.push('/');
+                        chars.next();
+                        char_idx += 1;
+                        break;
+                    }
+                    if c == '\n' {
+                        line_idx += 1;
+                        char_idx = 0;
+                    }
+                }
+            } else {
+                // Строчный комментарий //
+                while let Some(&(_, c)) = chars.peek() {
+                    if c != '\r' && c != '\n' {
+                        comment.push(c);
+                        chars.next();
+                        char_idx += 1;
+                    } else { break; }
                 }
             }
+            
             tokens.push(Token { kind: TokenKind::Comment, text: comment, line: line_idx, char: start_char });
         }
         // 4. URL И YTL-ПУТИ (http://, https://, ytl://)
@@ -121,15 +158,24 @@ pub fn tokenize(text: &str) -> Vec<Token> {
             string.push('"');
             chars.next();
             char_idx += 1;
+            
+            let mut closed = false;
             while let Some(&(_, c)) = chars.peek() {
                 string.push(c);
                 chars.next();
                 char_idx += 1;
                 if c == '"' {
+                    closed = true;
                     break;
                 }
             }
-            tokens.push(Token { kind: TokenKind::StringLiteral, text: string, line: line_idx, char: start_char });
+            
+            if closed {
+                tokens.push(Token { kind: TokenKind::StringLiteral, text: string, line: line_idx, char: start_char });
+            } else {
+                // Если кавычка не закрыта, отдаем как Unknown, чтобы не ломать парсер
+                tokens.push(Token { kind: TokenKind::Unknown, text: string, line: line_idx, char: start_char });
+            }
         }
         // 7. ПУТИ (C:\... и /usr/...)
         else if (ch.is_alphabetic() && rest.split_whitespace().next().unwrap_or("").contains(":\\")) || ch == '/' {
@@ -231,7 +277,7 @@ pub fn tokenize(text: &str) -> Vec<Token> {
                 '(' => TokenKind::OpenParen,
                 ')' => TokenKind::CloseParen,
                 ':' => TokenKind::Colon,
-                '+' | '-' | '*' | '/' => TokenKind::Operator,
+                '+' | '-' | '*' | '/' | '>' => TokenKind::Operator,
                 ',' => TokenKind::Comma,
                 _ => TokenKind::Unknown,
             };

@@ -9,6 +9,7 @@ mod cst_validator;
 mod inlay_hints;
 mod symbols;
 mod fs_utils;
+mod locales; // <-- ДОБАВЛЕНО
 
 use tower_lsp_server::{LspService, Server};
 use tower_lsp_server::jsonrpc::Result;
@@ -17,13 +18,64 @@ use tower_lsp_server::Client;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
 struct Backend {
     client: Client,
     documents: Arc<Mutex<HashMap<Uri, String>>>,
     root_path: Arc<Mutex<Option<PathBuf>>>,
+    locale: Arc<Mutex<locales::Locale>>, // <-- ДОБАВЛЕНО
+}
+
+impl Backend {
+    // Рекурсивный обход директории и проверка файлов
+    async fn scan_workspace(&self, dir: PathBuf) {
+        let client = self.client.clone();
+        let root_path = dir.clone();
+        let locale = {
+            let loc = self.locale.lock().await;
+            // Создаем копию нужных строк (так как Locale содержит String)
+            // В будущем можно сделать Locale: Clone
+            locales::load_locale(if loc.ipv4_invalid_format.contains("неверный") { "ru" } else { "en" })
+        };
+        
+        tokio::task::spawn_blocking(move || {
+            let mut paths = Vec::new();
+            Self::collect_ytl_files(&dir, &mut paths);
+            
+            for path in paths {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    let uri = Uri::from_file_path(&path).unwrap_or_else(|| "file:///unknown".parse().unwrap());
+                    
+                    let tokens = lexer::tokenize(&content);
+                    let cst = cst_parser::parse_to_cst(&tokens);
+                    let syntax_node = rowan::SyntaxNode::<crate::syntax::YtlLanguage>::new_root(cst);
+                    // Передаем locale
+                    let diagnostics = cst_validator::validate(&syntax_node, &content, &uri, Some(&root_path), &locale);
+                    
+                    let client_clone = client.clone();
+                    let uri_clone = uri.clone();
+                    tokio::spawn(async move {
+                        client_clone.publish_diagnostics(uri_clone, diagnostics, None).await;
+                    });
+                }
+            }
+        }).await.unwrap();
+    }
+
+    fn collect_ytl_files(dir: &Path, paths: &mut Vec<PathBuf>) {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    Self::collect_ytl_files(&path, paths);
+                } else if path.extension().map_or(false, |ext| ext == "ytl") {
+                    paths.push(path);
+                }
+            }
+        }
+    }
 }
 
 impl tower_lsp_server::LanguageServer for Backend {
@@ -36,6 +88,13 @@ impl tower_lsp_server::LanguageServer for Backend {
                     root_path = Some(path.into_owned());
                 }
             }
+        } else {
+            #[allow(deprecated)]
+            if let Some(root_uri) = &params.root_uri {
+                if let Some(path) = root_uri.to_file_path() {
+                    root_path = Some(path.into_owned());
+                }
+            }
         }
 
         {
@@ -43,10 +102,22 @@ impl tower_lsp_server::LanguageServer for Backend {
             *root = root_path;
         }
 
+        // --- ЧТЕНИЕ ЯЗЫКА ИЗ VS CODE ---
+        let mut lang = "en";
+        if let Some(options) = &params.initialization_options {
+            if let Some(lang_opt) = options.get("ytl_language").and_then(|v| v.as_str()) {
+                lang = lang_opt;
+            }
+        }
+        {
+            let mut loc = self.locale.lock().await;
+            *loc = locales::load_locale(lang);
+        }
+
         Ok(InitializeResult {
             server_info: Some(ServerInfo {
                 name: "YTL Language Server".to_string(),
-                version: Some("0.4.0".to_string()),
+                version: Some("0.4.1".to_string()), // Обновил версию!
             }),
             offset_encoding: None,
             capabilities: ServerCapabilities {
@@ -78,7 +149,17 @@ impl tower_lsp_server::LanguageServer for Backend {
     }
 
     async fn initialized(&self, _: InitializedParams) {
-        self.client.log_message(MessageType::INFO, "YTL Server 0.4.0 (CST) is ready").await;
+        self.client.log_message(MessageType::INFO, "YTL Server 0.4.1 (CST) is ready").await;
+        
+        let root_path_opt = {
+            let root = self.root_path.lock().await;
+            root.clone()
+        };
+        
+        if let Some(root) = root_path_opt {
+            self.client.log_message(MessageType::INFO, format!("Scanning workspace: {:?}", root)).await;
+            self.scan_workspace(root).await;
+        }
     }
 
     async fn shutdown(&self) -> Result<()> {
@@ -100,11 +181,16 @@ impl tower_lsp_server::LanguageServer for Backend {
             root.clone()
         };
 
+        let locale = {
+            let loc = self.locale.lock().await;
+            locales::load_locale(if loc.ipv4_invalid_format.contains("неверный") { "ru" } else { "en" })
+        };
+
         let diagnostics = {
             let tokens = lexer::tokenize(&text);
             let cst = cst_parser::parse_to_cst(&tokens);
             let syntax_node = rowan::SyntaxNode::<crate::syntax::YtlLanguage>::new_root(cst);
-            cst_validator::validate(&syntax_node, &text, &uri, root_path_opt.as_deref())
+            cst_validator::validate(&syntax_node, &text, &uri, root_path_opt.as_deref(), &locale)
         };
 
         self.client.publish_diagnostics(uri, diagnostics, None).await;
@@ -126,11 +212,16 @@ impl tower_lsp_server::LanguageServer for Backend {
                 root.clone()
             };
 
+            let locale = {
+                let loc = self.locale.lock().await;
+                locales::load_locale(if loc.ipv4_invalid_format.contains("неверный") { "ru" } else { "en" })
+            };
+
             let diagnostics = {
                 let tokens = lexer::tokenize(&text);
                 let cst = cst_parser::parse_to_cst(&tokens);
                 let syntax_node = rowan::SyntaxNode::<crate::syntax::YtlLanguage>::new_root(cst);
-                cst_validator::validate(&syntax_node, &text, &uri, root_path_opt.as_deref())
+                cst_validator::validate(&syntax_node, &text, &uri, root_path_opt.as_deref(), &locale)
             };
 
             self.client.publish_diagnostics(uri, diagnostics, None).await;
@@ -232,6 +323,7 @@ async fn main() {
         client,
         documents: Arc::new(Mutex::new(HashMap::new())),
         root_path: Arc::new(Mutex::new(None)),
+        locale: Arc::new(Mutex::new(locales::load_locale("en"))), // <-- Инициализация
     });
     Server::new(stdin, stdout, socket).serve(service).await;
 }

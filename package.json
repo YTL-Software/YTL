@@ -2,7 +2,7 @@
   "name": "ytl",
   "displayName": "YTL",
   "description": "YTL (Yggdrasil Template Language) is a new minimalist text format designed for configurations, logs, and declarative data structures. Its defining feature is a tree-like architecture and unique inverted inheritance that completely eliminates code duplication and visual clutter.",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "icon": "icon.jpg",
   "publisher": "Regent",
   "repository": {
@@ -20,6 +20,23 @@
     "Programming Languages"
   ],
   "contributes": {
+    "commands": [
+      {
+        "command": "ytl.switchLanguage",
+        "title": "YTL: switch language (EN/RU)"
+      }
+    ],
+    "configuration": {
+      "title": "YTL Configuration",
+      "properties": {
+        "ytl.language": {
+          "type": "string",
+          "enum": ["en", "ru"],
+          "default": "en",
+          "description": "Language for YTL diagnostics (English / Русский)"
+        }
+      }
+    },
     "languages": [
       {
         "id": "ytl",

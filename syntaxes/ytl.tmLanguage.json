@@ -2,9 +2,50 @@
     "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
     "name": "YTL",
     "patterns": [
+        {
+            "name": "meta.typed-ipv4.ytl",
+            "match": ">\\s*ipv4\\s+(\"[^\"]*\"|\\S+)",
+            "captures": {
+                "0": { "name": "support.type.ipv4.ytl" },
+                "1": { "name": "constant.other.network.ip.ipv4.ytl" }
+            }
+        },
+        {
+            "name": "meta.typed-ipv6.ytl",
+            "match": ">\\s*ipv6\\s+(\"[^\"]*\"|\\S+)",
+            "captures": {
+                "0": { "name": "support.type.ipv6.ytl" },
+                "1": { "name": "constant.other.network.ip.ipv6.ytl" }
+            }
+        },
+        {
+            "name": "meta.typed-mac.ytl",
+            "match": ">\\s*mac\\s+(\"[^\"]*\"|\\S+)",
+            "captures": {
+                "0": { "name": "support.type.mac.ytl" },
+                "1": { "name": "constant.numeric.mac.classic.ytl" }
+            }
+        },
+        {
+            "name": "meta.typed-uuid.ytl",
+            "match": ">\\s*uuid\\s+(\"[^\"]*\"|\\S+)",
+            "captures": {
+                "0": { "name": "support.type.uuid.ytl" },
+                "1": { "name": "constant.other.uuid.ytl" }
+            }
+        },
+        {
+            "name": "meta.typed-cidr.ytl",
+            "match": ">\\s*cidr\\s+(\"[^\"]*\"|\\S+)",
+            "captures": {
+                "0": { "name": "support.type.cidr.ytl" },
+                "1": { "name": "constant.other.network.cidr.ytl" }
+            }
+        },
         { "include": "#comments" },
         { "include": "#modifiers"},
         { "include": "#imports"},
+        { "include": "#types" },
         { "include": "#uuid" },
         { "include": "#quoted-key" },
         { "include": "#strings" },
@@ -22,6 +63,7 @@
         { "include": "#networks" },
         { "include": "#numbers" },
         { "include": "#block" },
+        { "include": "#operators" },
         { "include": "#brackets" }
     ],
     "repository": {
@@ -128,6 +170,30 @@
                 {
                     "name": "entity.name.class.ytl",
                     "match": "^[a-zA-Z_][a-zA-Z0-9_]*\\b(?=\\s*(?:\\{|:(?=[ \\t]*$|[ \\t]+//.*$)))"
+                }
+            ]
+        },
+        "types": {
+            "patterns": [
+                {
+                    "name": "support.type.ipv4.ytl",
+                    "match": "(?<=\\>)\\s*(ipv4)\\b"
+                },
+                {
+                    "name": "support.type.ipv6.ytl",
+                    "match": "(?<=\\>)\\s*(ipv6)\\b"
+                },
+                {
+                    "name": "support.type.mac.ytl",
+                    "match": "(?<=\\>)\\s*(mac)\\b"
+                },
+                {
+                    "name": "support.type.uuid.ytl",
+                    "match": "(?<=\\>)\\s*(uuid)\\b"
+                },
+                {
+                    "name": "support.type.cidr.ytl",
+                    "match": "(?<=\\>)\\s*(cidr)\\b"
                 }
             ]
         },
@@ -395,6 +461,10 @@
                 {
                     "name": "keyword.operator.merge.ytl",
                     "match": "(?<=\\s)[+-](?=[a-zA-Z_])"
+                },
+                {
+                    "name": "keyword.operator.type.ytl",
+                    "match": ">"
                 }
             ]
         },

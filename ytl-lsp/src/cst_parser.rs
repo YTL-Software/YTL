@@ -27,14 +27,12 @@ pub fn parse_to_cst(tokens: &[Token]) -> GreenNode {
     while i < tokens.len() {
         let token = &tokens[i];
 
-        // 1. Пробелы, переносы строк и комментарии просто кладем в дерево
         if is_trivia(&token.kind) {
             builder.token(YtlLanguage::kind_to_raw(YtlKind::Whitespace), &token.text);
             i += 1;
             continue;
         }
 
-        // 2. Закрываем блоки, если отступ уменьшился
         let is_stray_include =
             token.kind == TokenKind::Word && token.text == "Include" && !block_stack.is_empty();
 
@@ -55,7 +53,6 @@ pub fn parse_to_cst(tokens: &[Token]) -> GreenNode {
                 if let Some(next_idx) = next_meaningful_on_line(tokens, i + 1, token.line) {
                     let next = &tokens[next_idx];
 
-                    // БЛОК С РОДИТЕЛЯМИ (Spa{Server}:)
                     if next.kind == TokenKind::OpenBrace {
                         let mut j = next_idx + 1;
                         while j < tokens.len() && tokens[j].kind != TokenKind::CloseBrace {
@@ -98,7 +95,6 @@ pub fn parse_to_cst(tokens: &[Token]) -> GreenNode {
                             }
                         }
                     }
-                    // ОБЫЧНЫЙ БЛОК (Server:)
                     else if next.kind == TokenKind::Colon {
                         builder.start_node(YtlLanguage::kind_to_raw(YtlKind::Block));
                         builder.token(YtlLanguage::kind_to_raw(YtlKind::BlockName), &token.text);
@@ -109,7 +105,6 @@ pub fn parse_to_cst(tokens: &[Token]) -> GreenNode {
                         i = next_idx + 1;
                         continue;
                     }
-                    // ПОЛЕ (ip 192.168.1.1 и т.д.)
                     else if matches!(
                         next.kind,
                         TokenKind::Word
@@ -122,8 +117,8 @@ pub fn parse_to_cst(tokens: &[Token]) -> GreenNode {
                             | TokenKind::Url
                             | TokenKind::IpV6
                             | TokenKind::Path
+                            | TokenKind::Operator // Добавили оператор для `>`
                     ) {
-                        // Спец-директива Const
                         if token.text == "Const" {
                             builder.start_node(YtlLanguage::kind_to_raw(YtlKind::ConstKeyword));
                             builder.token(YtlLanguage::kind_to_raw(YtlKind::FieldName), &token.text);
@@ -145,7 +140,6 @@ pub fn parse_to_cst(tokens: &[Token]) -> GreenNode {
                             builder.finish_node();
                             continue;
                         }
-                        // Спец-директива Realm (ИСПРАВЛЕНО!)
                         else if token.text == "Realm" {
                             builder.start_node(YtlLanguage::kind_to_raw(YtlKind::Realm));
                             builder.token(YtlLanguage::kind_to_raw(YtlKind::BlockName), &token.text);
@@ -160,24 +154,50 @@ pub fn parse_to_cst(tokens: &[Token]) -> GreenNode {
                                 j += 1;
                             }
                             
-                            // НЕ ЗАКРЫВАЕМ Realm! Пушим отступ в стек, чтобы поля попали внутрь
                             block_stack.push(token.char);
                             i = j;
                             continue;
                         }
 
-                        // Обычное поле (включая Include и Attach)
+                        // ИСПРАВЛЕННЫЙ БЛОК ОБЫЧНОГО ПОЛЯ
                         builder.start_node(YtlLanguage::kind_to_raw(YtlKind::Field));
                         builder.token(YtlLanguage::kind_to_raw(YtlKind::FieldName), &token.text);
 
                         let mut j = i + 1;
+                        let mut found_type_arrow = false;
+                        let mut combined_value = String::new();
+
                         while j < tokens.len() && tokens[j].line == token.line {
                             if is_trivia(&tokens[j].kind) {
-                                builder.token(YtlLanguage::kind_to_raw(YtlKind::Whitespace), &tokens[j].text);
+                                // Если мы уже начали собирать значение (встретили >), пробелы идут внутрь значения
+                                if found_type_arrow || !combined_value.is_empty() {
+                                    combined_value.push_str(&tokens[j].text);
+                                } else {
+                                    // Пробелы до стрелки остаются отдельными токенами
+                                    builder.token(YtlLanguage::kind_to_raw(YtlKind::Whitespace), &tokens[j].text);
+                                }
+                            } else if tokens[j].text == ">" {
+                                found_type_arrow = true;
+                                if !combined_value.is_empty() {
+                                    combined_value.push_str(&tokens[j].text); // Добавляем ">" в конец (если что-то было)
+                                } else {
+                                    combined_value.push_str(&tokens[j].text); // Или начинаем с ">"
+                                }
                             } else {
-                                builder.token(YtlLanguage::kind_to_raw(YtlKind::FieldValue), &tokens[j].text);
+                                if found_type_arrow {
+                                    // Всё, что после стрелки, склеиваем в одну строку
+                                    combined_value.push_str(&tokens[j].text);
+                                } else {
+                                    // Всё, что до стрелки — это обычные значения (например, если их несколько)
+                                    builder.token(YtlLanguage::kind_to_raw(YtlKind::FieldValue), &tokens[j].text);
+                                }
                             }
                             j += 1;
+                        }
+
+                        // Если мы что-то накопили (стрелку и тип), отдаем это как ОДИН FieldValue
+                        if !combined_value.is_empty() {
+                            builder.token(YtlLanguage::kind_to_raw(YtlKind::FieldValue), &combined_value);
                         }
 
                         builder.finish_node();
@@ -195,7 +215,6 @@ pub fn parse_to_cst(tokens: &[Token]) -> GreenNode {
         }
     }
 
-    // Закрываем все оставшиеся блоки и Root
     while !block_stack.is_empty() {
         builder.finish_node();
         block_stack.pop();
