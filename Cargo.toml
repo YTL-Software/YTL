@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "ytl-core",
+    "ytl-lsp",
+    # "ytl-cli-config",
+]
+resolver = "2"

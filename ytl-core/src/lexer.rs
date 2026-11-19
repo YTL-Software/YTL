@@ -67,7 +67,7 @@ pub fn tokenize(text: &str) -> Vec<Token> {
             tokens.push(Token { kind: TokenKind::Whitespace, text: ws, line: line_idx, char: start_char });
         }
         // 3. КОММЕНТАРИИ (//... и /* ... */ и #...)
-        else if rest.starts_with("//") || rest.starts_with("/*") || ch == '#' {
+        else if rest.starts_with("//") || rest.starts_with("/*") || (ch == '#' && is_hash_comment(rest, char_idx, &text[..byte_idx])) {
             let start_char = char_idx;
             let mut comment = String::new();
             
@@ -287,4 +287,28 @@ pub fn tokenize(text: &str) -> Vec<Token> {
         }
     }
     tokens
+}
+
+/// Проверяет, является ли `#` началом комментария.
+/// Комментарий — если `#` в начале строки или после пробела, 
+/// И после него НЕ идёт hex-цвет (3 или 6 hex-символов до конца строки/разделителя).
+fn is_hash_comment(rest: &str, char_idx: usize, prefix: &str) -> bool {
+    // 1. # должен быть в начале строки или после пробела/таба
+    let is_at_start_or_space = char_idx == 0 || prefix.ends_with(' ') || prefix.ends_with('\t');
+    if !is_at_start_or_space {
+        return false;
+    }
+
+    // 2. Проверяем, не hex-цвет ли это
+    let after_hash = rest.trim_start_matches('#');
+    let hex_part: String = after_hash.chars().take_while(|c| c.is_ascii_hexdigit()).collect();
+    
+    // Если после # идёт 3 или 6 hex-символов, и дальше конец строки/пробел/разделитель — это цвет
+    let is_hex_color = (hex_part.len() == 3 || hex_part.len() == 6)
+        && (after_hash.len() == hex_part.len()
+            || after_hash.chars().nth(hex_part.len()).map_or(true, |c| {
+                c.is_whitespace() || c == ',' || c == ']' || c == '}' || c == ')'
+            }));
+
+    !is_hex_color
 }

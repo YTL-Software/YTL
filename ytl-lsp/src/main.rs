@@ -1,15 +1,13 @@
-mod lexer;
-mod validators;
+// Модули, которые остались в ytl-lsp:
 mod hover;
 mod completion;
 mod code_action;
-mod syntax;
-mod cst_parser;
-mod cst_validator;
 mod inlay_hints;
-mod symbols;
-mod fs_utils;
-mod locales; // <-- ДОБАВЛЕНО
+
+// Импортируем всё из ytl-core:
+use ytl_core::{
+    lexer, cst_parser, syntax, locales, cst_validator, fs_utils, symbols
+};
 
 use tower_lsp_server::{LspService, Server};
 use tower_lsp_server::jsonrpc::Result;
@@ -25,19 +23,22 @@ struct Backend {
     client: Client,
     documents: Arc<Mutex<HashMap<Uri, String>>>,
     root_path: Arc<Mutex<Option<PathBuf>>>,
-    locale: Arc<Mutex<locales::Locale>>, // <-- ДОБАВЛЕНО
+    language: Arc<Mutex<String>>, 
 }
 
 impl Backend {
+    fn parse_document(text: &str) -> crate::syntax::SyntaxNode{
+        let tokens = lexer::tokenize(text);
+        let cst = cst_parser::parse_to_cst(&tokens);
+        rowan::SyntaxNode::<crate::syntax::YtlLanguage>::new_root(cst)
+    }
     // Рекурсивный обход директории и проверка файлов
     async fn scan_workspace(&self, dir: PathBuf) {
         let client = self.client.clone();
         let root_path = dir.clone();
         let locale = {
-            let loc = self.locale.lock().await;
-            // Создаем копию нужных строк (так как Locale содержит String)
-            // В будущем можно сделать Locale: Clone
-            locales::load_locale(if loc.ipv4_invalid_format.contains("неверный") { "ru" } else { "en" })
+            let lang = self.language.lock().await;
+            locales::load_locale(&lang)
         };
         
         tokio::task::spawn_blocking(move || {
@@ -110,8 +111,8 @@ impl tower_lsp_server::LanguageServer for Backend {
             }
         }
         {
-            let mut loc = self.locale.lock().await;
-            *loc = locales::load_locale(lang);
+            let mut current_lang = self.language.lock().await;
+            *current_lang = lang.to_string();
         }
 
         Ok(InitializeResult {
@@ -182,14 +183,12 @@ impl tower_lsp_server::LanguageServer for Backend {
         };
 
         let locale = {
-            let loc = self.locale.lock().await;
-            locales::load_locale(if loc.ipv4_invalid_format.contains("неверный") { "ru" } else { "en" })
+            let lang = self.language.lock().await;
+            locales::load_locale(&lang)
         };
 
         let diagnostics = {
-            let tokens = lexer::tokenize(&text);
-            let cst = cst_parser::parse_to_cst(&tokens);
-            let syntax_node = rowan::SyntaxNode::<crate::syntax::YtlLanguage>::new_root(cst);
+            let syntax_node = Self::parse_document(&text);
             cst_validator::validate(&syntax_node, &text, &uri, root_path_opt.as_deref(), &locale)
         };
 
@@ -213,14 +212,12 @@ impl tower_lsp_server::LanguageServer for Backend {
             };
 
             let locale = {
-                let loc = self.locale.lock().await;
-                locales::load_locale(if loc.ipv4_invalid_format.contains("неверный") { "ru" } else { "en" })
+                let lang = self.language.lock().await;
+                locales::load_locale(&lang)
             };
 
             let diagnostics = {
-                let tokens = lexer::tokenize(&text);
-                let cst = cst_parser::parse_to_cst(&tokens);
-                let syntax_node = rowan::SyntaxNode::<crate::syntax::YtlLanguage>::new_root(cst);
+                let syntax_node = Self::parse_document(&text);
                 cst_validator::validate(&syntax_node, &text, &uri, root_path_opt.as_deref(), &locale)
             };
 
@@ -257,11 +254,9 @@ impl tower_lsp_server::LanguageServer for Backend {
 
         let docs = self.documents.lock().await;
         if let Some(text) = docs.get(&uri) {
-            let tokens = lexer::tokenize(text);
-            let cst = cst_parser::parse_to_cst(&tokens);
-            let syntax_node = rowan::SyntaxNode::<crate::syntax::YtlLanguage>::new_root(cst);
+            let syntax_node = Self::parse_document(&text);
 
-            let items = completion::get_completions(&syntax_node, position, text, &uri, root_path_ref);
+            let items = completion::get_completions(&syntax_node, position, text.as_str(), &uri, root_path_ref);
             if !items.is_empty() {
                 return Ok(Some(CompletionResponse::Array(items)));
             }
@@ -275,11 +270,9 @@ impl tower_lsp_server::LanguageServer for Backend {
         let docs = self.documents.lock().await;
         
         if let Some(text) = docs.get(&uri) {
-            let tokens = lexer::tokenize(text);
-            let cst = cst_parser::parse_to_cst(&tokens);
-            let syntax_node = rowan::SyntaxNode::<crate::syntax::YtlLanguage>::new_root(cst);
+            let syntax_node = Self::parse_document(&text);
 
-            let actions = code_action::get_code_actions(&syntax_node, text, &uri, params.range.start);
+            let actions = code_action::get_code_actions(&syntax_node, text.as_str(), &uri, params.range.start);
             
             if !actions.is_empty() {
                 return Ok(Some(actions));
@@ -300,11 +293,9 @@ impl tower_lsp_server::LanguageServer for Backend {
         let docs = self.documents.lock().await;
         
         if let Some(text) = docs.get(&uri) {
-            let tokens = lexer::tokenize(text);
-            let cst = cst_parser::parse_to_cst(&tokens);
-            let syntax_node = rowan::SyntaxNode::<crate::syntax::YtlLanguage>::new_root(cst);
+            let syntax_node = Self::parse_document(&text);
 
-            let hints = inlay_hints::get_inlay_hints(&syntax_node, text, params.range, &uri, root_path_ref);
+            let hints = inlay_hints::get_inlay_hints(&syntax_node, text.as_str(), params.range, &uri, root_path_ref);
             
             if !hints.is_empty() {
                 return Ok(Some(hints));
@@ -323,7 +314,7 @@ async fn main() {
         client,
         documents: Arc::new(Mutex::new(HashMap::new())),
         root_path: Arc::new(Mutex::new(None)),
-        locale: Arc::new(Mutex::new(locales::load_locale("en"))), // <-- Инициализация
+        language: Arc::new(Mutex::new("en".to_string())), // <-- Инициализация
     });
     Server::new(stdin, stdout, socket).serve(service).await;
 }

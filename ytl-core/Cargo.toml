@@ -1,0 +1,15 @@
+[package]
+name = "ytl-core"
+version = "0.1.0"
+edition = "2024" # У тебя был 2024, если компилятор позволяет — оставь 2024
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ipnet = "2.9"
+rowan = "0.15"
+uuid = { version = "1.7", features = ["v4"] }
+eui48 = "1.1"
+rand = "0.8"
+# Если используешь tower-lsp-server для Diagnostic в cst_validator.rs, то нужно:
+tower-lsp-server = "0.23"

@@ -1,4 +1,4 @@
-use crate::syntax::{SyntaxNode, YtlKind};
+use ytl_core::syntax::{SyntaxNode, YtlKind};
 use tower_lsp_server::ls_types::{Hover, HoverContents, MarkupContent, MarkupKind, Position};
 
 pub fn get_hover(cst: &SyntaxNode, position: Position) -> Option<Hover> {

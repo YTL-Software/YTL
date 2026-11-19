@@ -1,4 +1,4 @@
-use crate::syntax::{SyntaxNode, YtlKind};
+use ytl_core::syntax::{SyntaxNode, YtlKind};
 use tower_lsp_server::ls_types::{
     CodeAction, CodeActionKind, CodeActionOrCommand, Command, Position, Range, TextEdit,
     WorkspaceEdit, Uri,

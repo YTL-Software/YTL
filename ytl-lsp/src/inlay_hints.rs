@@ -1,4 +1,4 @@
-use crate::syntax::{SyntaxNode, YtlKind};
+use ytl_core::syntax::{SyntaxNode, YtlKind};
 use tower_lsp_server::ls_types::{InlayHint, InlayHintKind, InlayHintLabel, Position, Range, Uri};
 use crate::cst_validator::offset_to_position;
 use crate::symbols::{collect_all_blocks, get_fields_from_block};

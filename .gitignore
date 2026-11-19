@@ -1,12 +1,20 @@
+# Rust
+target/
+**/target/
+**/*.rs.bk
+Cargo.lock.bak
+*.pdb
+
 # Node.js
 node_modules/
+*.vsix
 
-# Environment
-.env
+# VS Code
+.vscode/*
+!.vscode/launch.json
+!.vscode/tasks.json
+!.vscode/extensions.json
 
-# Rust (LSP)
-ytl-lsp/target/
-
-# OS / Editor
+# OS
 .DS_Store
-.vscode/
+Thumbs.db
